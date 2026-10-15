@@ -170,8 +170,18 @@ def discover_test_modules(include_release: bool) -> list[str]:
 
 
 
+def _short_test_label(stripped: str) -> str:
+    """Return compact '<file.py> - <task>' text for unittest verbose output."""
+    head = stripped.split(" ... ", 1)[0]
+    method, qualified = head.split(" (", 1)
+    module = qualified.split(".", 1)[0]
+    filename = f"{module}.py"
+    task = method.removeprefix("test_").replace("_", " ")
+    return f"{filename} - {task}"
+
+
 def number_test_output(output: str) -> str:
-    """Prefix verbose unittest result lines with stable run-order numbers."""
+    """Reduce verbose unittest result lines to numbered compact summaries."""
     numbered: list[str] = []
     counter = 0
     for line in output.splitlines():
@@ -183,8 +193,10 @@ def number_test_output(output: str) -> str:
         )
         if is_test_result:
             counter += 1
-            indent = line[: len(line) - len(stripped)]
-            line = f"{indent}[{counter:03d}] {stripped}"
+            status = stripped.rsplit(" ... ", 1)[-1]
+            line = f"[{counter:03d}] {_short_test_label(stripped)} - {status}"
+        elif stripped.startswith("test_"):
+            continue
         numbered.append(line)
     return "\n".join(numbered)
 
