@@ -169,6 +169,25 @@ def discover_test_modules(include_release: bool) -> list[str]:
     return modules
 
 
+
+def number_test_output(output: str) -> str:
+    """Prefix verbose unittest result lines with stable run-order numbers."""
+    numbered: list[str] = []
+    counter = 0
+    for line in output.splitlines():
+        stripped = line.lstrip()
+        is_test_result = (
+            stripped.startswith("test_")
+            and " ... " in stripped
+            and stripped.rsplit(" ... ", 1)[-1] in {"ok", "FAIL", "ERROR", "skipped"}
+        )
+        if is_test_result:
+            counter += 1
+            indent = line[: len(line) - len(stripped)]
+            line = f"{indent}[T{counter:03d}] {stripped}"
+        numbered.append(line)
+    return "\n".join(numbered)
+
 def run_unittests(include_release: bool, verbosity: int, failfast: bool, native: bool) -> StageResult:
     started = time.monotonic()
     modules = discover_test_modules(include_release)
@@ -222,7 +241,8 @@ def run_unittests(include_release: bool, verbosity: int, failfast: bool, native:
 
     mode = "release" if include_release else "regression"
     runner = "native" if native else "docker"
-    detail = f"runner={runner}; mode={mode}; modules={len(modules)}\n{proc.stdout.rstrip()}"
+    numbered_output = number_test_output(proc.stdout.rstrip())
+    detail = f"runner={runner}; mode={mode}; modules={len(modules)}\n{numbered_output}"
     return StageResult(
         "unittest-regression",
         proc.returncode == 0,
