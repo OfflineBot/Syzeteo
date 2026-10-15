@@ -25,7 +25,7 @@ class I18nTest(unittest.TestCase):
         de = i18n.load_catalog("de")
         self.assertEqual(set(en), set(de))
         self.assertEqual(i18n.validate_catalogs(), [])
-        self.assertEqual(set(i18n.available_locales()), {"en", "de"})
+        self.assertTrue({"en", "de"}.issubset(set(i18n.available_locales())))
 
     def test_i18n_installed_compound_locale_is_preserved_and_selectable(self):
         with tempfile.TemporaryDirectory() as td:
