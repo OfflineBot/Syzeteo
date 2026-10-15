@@ -241,23 +241,50 @@ def run_unittests(include_release: bool, verbosity: int, failfast: bool, native:
             ]
             env = os.environ.copy()
 
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=ROOT,
             env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            check=False,
+            bufsize=1,
         )
+
+        captured: list[str] = []
+        counter = 0
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip("\n")
+            captured.append(line)
+            stripped = line.lstrip()
+            is_test_result = (
+                stripped.startswith("test_")
+                and " ... " in stripped
+                and stripped.rsplit(" ... ", 1)[-1] in {"ok", "FAIL", "ERROR", "skipped"}
+            )
+            if is_test_result:
+                counter += 1
+                status = stripped.rsplit(" ... ", 1)[-1]
+                print(f"[{counter:03d}] {_short_test_label(stripped)} - {status}", flush=True)
+
+        returncode = proc.wait()
 
     mode = "release" if include_release else "regression"
     runner = "native" if native else "docker"
-    numbered_output = number_test_output(proc.stdout.rstrip())
-    detail = f"runner={runner}; mode={mode}; modules={len(modules)}\n{numbered_output}"
+    failures = "\n".join(
+        line for line in captured
+        if line.startswith("FAIL:")
+        or line.startswith("ERROR:")
+        or line.startswith("AssertionError:")
+        or line.startswith("Traceback")
+    )
+    detail = f"runner={runner}; mode={mode}; modules={len(modules)}"
+    if failures:
+        detail += "\n" + failures
     return StageResult(
         "unittest-regression",
-        proc.returncode == 0,
+        returncode == 0,
         time.monotonic() - started,
         detail,
     )
