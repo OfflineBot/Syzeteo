@@ -184,7 +184,7 @@ def number_test_output(output: str) -> str:
         if is_test_result:
             counter += 1
             indent = line[: len(line) - len(stripped)]
-            line = f"{indent}[T{counter:03d}] {stripped}"
+            line = f"{indent}[{counter:03d}] {stripped}"
         numbered.append(line)
     return "\n".join(numbered)
 
