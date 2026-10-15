@@ -14,6 +14,7 @@ import argparse
 import compileall
 import json
 import os
+import shutil
 import subprocess
 import string
 import sys
@@ -168,7 +169,7 @@ def discover_test_modules(include_release: bool) -> list[str]:
     return modules
 
 
-def run_unittests(include_release: bool, verbosity: int, failfast: bool) -> StageResult:
+def run_unittests(include_release: bool, verbosity: int, failfast: bool, native: bool) -> StageResult:
     started = time.monotonic()
     modules = discover_test_modules(include_release)
     if not modules:
@@ -179,16 +180,36 @@ def run_unittests(include_release: bool, verbosity: int, failfast: bool) -> Stag
             "no test_*.py modules found",
         )
 
-    cmd = [sys.executable, "-m", "unittest"]
+    unit_args = ["python", "-m", "unittest"]
     if verbosity >= 2:
-        cmd.append("-v")
+        unit_args.append("-v")
     if failfast:
-        cmd.append("-f")
-    cmd.extend(modules)
+        unit_args.append("-f")
+    unit_args.extend(modules)
 
     with tempfile.TemporaryDirectory(prefix="syzeteo-regression-") as td:
-        env = os.environ.copy()
-        env["SYZETEO_DATA_DIR"] = td
+        if native:
+            cmd = [sys.executable, *unit_args[1:]]
+            env = os.environ.copy()
+            env["SYZETEO_DATA_DIR"] = td
+        else:
+            if not shutil.which("docker"):
+                return StageResult(
+                    "unittest-regression",
+                    False,
+                    time.monotonic() - started,
+                    "docker executable not found; use --native only when host dependencies are installed",
+                )
+            cmd = [
+                "docker", "compose", "run", "--rm", "--no-deps",
+                "-e", "SYZETEO_DATA_DIR=/data",
+                "-v", f"{ROOT}:/app",
+                "-v", f"{td}:/data",
+                "syzeteo",
+                *unit_args,
+            ]
+            env = os.environ.copy()
+
         proc = subprocess.run(
             cmd,
             cwd=ROOT,
@@ -200,7 +221,8 @@ def run_unittests(include_release: bool, verbosity: int, failfast: bool) -> Stag
         )
 
     mode = "release" if include_release else "regression"
-    detail = f"mode={mode}; modules={len(modules)}\n{proc.stdout.rstrip()}"
+    runner = "native" if native else "docker"
+    detail = f"runner={runner}; mode={mode}; modules={len(modules)}\n{proc.stdout.rstrip()}"
     return StageResult(
         "unittest-regression",
         proc.returncode == 0,
@@ -234,6 +256,11 @@ def parse_args() -> argparse.Namespace:
         "--release",
         action="store_true",
         help="also run test_release.py; intended for the clean public release tree",
+    )
+    parser.add_argument(
+        "--native",
+        action="store_true",
+        help="run unit tests with host Python instead of Docker; host dependencies must be installed",
     )
     parser.add_argument(
         "--failfast",
@@ -275,7 +302,7 @@ def main() -> int:
                 write_json_report(args.json_report, results, args.release)
             return 1
 
-    unit = run_unittests(args.release, 2 if args.verbose else 1, args.failfast)
+    unit = run_unittests(args.release, 2 if args.verbose else 1, args.failfast, args.native)
     results.append(unit)
     print_result(unit, args.verbose)
 
@@ -285,6 +312,7 @@ def main() -> int:
 
     passed = sum(1 for r in results if r.ok)
     print(f"\nSyzeteo regression: {passed}/{len(results)} stages PASS")
+    print("Runner:", "native" if args.native else "docker")
     if args.release:
         print("Mode: release (includes public-release hygiene tests)")
     else:
